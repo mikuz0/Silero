@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.egg
+
+# Виртуальное окружение
+xtts_env/
+auralis_env/
+myenv/
+myenv310/
+myenv311/
+
+# Локально собранный Python
+python_src/
+python_local/
+
+# Файлы конфигурации
+config.json
+*.log
+install.log
+
+# Временные файлы
+temp/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Файлы IDE
+.vscode/
+.idea/
+*.sublime-*
+.DS_Store
+
+# Аудио файлы (если есть в репозитории, но обычно их не хранят)
+*.mp3
+*.wav
+*.flac
+*.ogg
+
+# Субтитры (если не нужны в репозитории)
+*.srt
+
+# Результаты обработки (можно исключить, если не нужно хранить в репозитории)
+01_extracted_text/
+02_replaced_text/
+03_text_fragments/
+04_audio/
+05_subtitles/
+source/
+
+# Модели
+*.pth
+*.pt
+*.bin
+*.safetensors
+~/.local/share/tts/
+~/.cache/torch/
+
+# Файлы пользователя
+stress_dict.json
+
+# PyQt5
+*.pyc
+*.qmlc
+*.jsc
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

@@ -1,0 +1,38 @@
+tts_app/
+├── main.py                 # Точка входа
+├── requirements.txt       # Зависимости
+├── README.md             # Документация
+├── config/               # Конфигурации
+│   ├── __init__.py
+│   └── settings.py       # Настройки приложения
+├── core/                 # Ядро системы
+│   ├── __init__.py
+│   ├── tts_engine.py     # Silero TTS обертка
+│   ├── text_processor.py # RUAccent + нормализация
+│   ├── audio_processor.py # Постобработка (FFmpeg)
+│   └── pipeline.py       # Оркестрация пайплайна
+├── workers/              # Фоновые потоки
+│   ├── __init__.py
+│   ├── tts_worker.py     # QThread для синтеза
+│   └── batch_worker.py   # Пакетная обработка
+├── gui/                  # GUI компоненты
+│   ├── __init__.py
+│   ├── main_window.py    # Главное окно
+│   ├── text_tab.py       # Вкладка с текстом
+│   ├── batch_tab.py      # Вкладка пакетной обработки
+│   ├── settings_dialog.py # Диалог настроек
+│   └── widgets/          # Переиспользуемые виджеты
+│       ├── __init__.py
+│       ├── audio_player.py
+│       └── progress_widget.py
+├── models/               # Загружаемые модели
+│   ├── ruaccent/         # Кэш RUAccent
+│   └── silero/           # Кэш Silero
+├── output/               # Выходные файлы
+│   ├── single/           # Одиночные файлы
+│   └── batch/            # Пакетные файлы
+└── utils/                # Утилиты
+    ├── __init__.py
+    ├── file_utils.py     # Работа с файлами
+    ├── text_utils.py     # Обработка текста
+    └── logger.py         # Логирование
