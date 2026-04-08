@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt
 from config.settings import AppConfig, TTSSettings, AppSettings
 from gui.text_tab import TextTab
 from gui.batch_tab import BatchTab
+from gui.settings_dialog import SettingsDialog
 from utils.logger import setup_logger, get_logger
 
 logger = get_logger(__name__)
@@ -60,26 +61,27 @@ class MainWindow(QMainWindow):
         self.restore_window_geometry()
         
         logger.info(f"{AppConfig.APP_NAME} запущен")
-        logger.info(f"Загружены настройки: голос={self.settings.voice}, "
-                   f"ударения={self.settings.accent_model}, "
-                   f"формат={self.settings.output_format}, "
-                   f"битрейт={self.settings.mp3_bitrate}")
     
     def create_menu_bar(self):
+        """Создание строки меню"""
         menubar = self.menuBar()
         
         # ===== Меню Файл =====
         file_menu = menubar.addMenu("📁 Файл")
+        
         select_working_dir_action = QAction("📂 Выбрать рабочую папку", self)
         select_working_dir_action.triggered.connect(self.select_working_dir_from_menu)
         file_menu.addAction(select_working_dir_action)
+        
         file_menu.addSeparator()
+        
         exit_action = QAction("🚪 Выйти", self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
         # ===== Меню Правка =====
         edit_menu = menubar.addMenu("✏️ Правка")
+        
         clear_audio_action = QAction("🗑️ Очистить аудио", self)
         clear_audio_action.triggered.connect(self.clear_audio_from_menu)
         edit_menu.addAction(clear_audio_action)
@@ -87,125 +89,35 @@ class MainWindow(QMainWindow):
         # ===== Меню Настройки =====
         settings_menu = menubar.addMenu("⚙️ Настройки")
         
-        # Подменю Голос
-        voice_menu = QMenu("🎤 Голос", self)
-        self.voice_actions = {}
-        for voice in AppConfig.AVAILABLE_VOICES:
-            action = QAction(voice, self)
-            action.setCheckable(True)
-            action.triggered.connect(lambda checked, v=voice: self.change_voice(v))
-            voice_menu.addAction(action)
-            self.voice_actions[voice] = action
-        settings_menu.addMenu(voice_menu)
-        
-        settings_menu.addSeparator()
-        
-        # Подменю Качество ударений
-        accent_menu = QMenu("📖 Качество ударений", self)
-        self.accent_actions = {}
-        fast_action = QAction("fast (быстро, turbo2)", self)
-        fast_action.setCheckable(True)
-        fast_action.triggered.connect(lambda checked: self.change_accent_model('fast'))
-        accent_menu.addAction(fast_action)
-        self.accent_actions['fast'] = fast_action
-        accurate_action = QAction("accurate (точно, big_poetry)", self)
-        accurate_action.setCheckable(True)
-        accurate_action.triggered.connect(lambda checked: self.change_accent_model('accurate'))
-        accent_menu.addAction(accurate_action)
-        self.accent_actions['accurate'] = accurate_action
-        settings_menu.addMenu(accent_menu)
-        
-        settings_menu.addSeparator()
-        
-        # Подменю Формат аудио
-        format_menu = QMenu("💿 Формат аудио", self)
-        self.format_actions = {}
-        for fmt in ['mp3', 'wav']:
-            action = QAction(fmt.upper(), self)
-            action.setCheckable(True)
-            action.triggered.connect(lambda checked, f=fmt: self.change_format(f))
-            format_menu.addAction(action)
-            self.format_actions[fmt] = action
-        settings_menu.addMenu(format_menu)
-        
-        # Подменю Битрейт MP3
-        self.bitrate_menu = QMenu("📊 Битрейт MP3", self)
-        self.bitrate_actions = {}
-        for bitrate in ['128k', '192k', '256k', '320k']:
-            action = QAction(bitrate, self)
-            action.setCheckable(True)
-            action.triggered.connect(lambda checked, b=bitrate: self.change_bitrate(b))
-            self.bitrate_menu.addAction(action)
-            self.bitrate_actions[bitrate] = action
-        settings_menu.addMenu(self.bitrate_menu)
+        settings_action = QAction("Настройки...", self)
+        settings_action.triggered.connect(self.open_settings)
+        settings_menu.addAction(settings_action)
         
         # ===== Меню Помощь =====
         help_menu = menubar.addMenu("❓ Помощь")
+        
         about_action = QAction("ℹ️ О программе", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
-        
-        # Обновляем состояние меню
-        self.update_menu_state()
     
-    def update_menu_state(self):
-        """Обновление галочек в меню в соответствии с текущими настройками"""
-        for voice, action in self.voice_actions.items():
-            action.setChecked(voice == self.settings.voice)
-        
-        self.accent_actions[self.settings.accent_model].setChecked(True)
-        
-        for fmt, action in self.format_actions.items():
-            action.setChecked(fmt == self.settings.output_format)
-        
-        for bitrate, action in self.bitrate_actions.items():
-            action.setChecked(bitrate == self.settings.mp3_bitrate)
-        
-        self.bitrate_menu.setEnabled(self.settings.output_format == 'mp3')
-    
-    def save_and_sync_settings(self):
-        """Сохраняет настройки в QSettings и синхронизирует с вкладками"""
-        # Сохраняем в QSettings
-        self.app_settings.set_tts_settings(self.settings.to_dict())
-        
-        # Синхронизируем с вкладками
-        self.text_tab.update_settings(self.settings)
-        self.batch_tab.update_settings(self.settings)
-        
-        logger.info(f"Настройки сохранены: голос={self.settings.voice}, "
-                   f"ударения={self.settings.accent_model}, "
-                   f"формат={self.settings.output_format}, "
-                   f"битрейт={self.settings.mp3_bitrate}")
-    
-    # ===== Обработчики изменения настроек =====
-    
-    def change_voice(self, voice: str):
-        self.settings.voice = voice
-        self.update_menu_state()
-        self.save_and_sync_settings()
-        self.status_bar.showMessage(f"Голос: {voice}", 2000)
-    
-    def change_accent_model(self, model: str):
-        self.settings.accent_model = model
-        self.update_menu_state()
-        self.save_and_sync_settings()
-        self.status_bar.showMessage(f"Режим ударений: {model}", 2000)
-    
-    def change_format(self, fmt: str):
-        self.settings.output_format = fmt
-        self.update_menu_state()
-        self.save_and_sync_settings()
-        self.status_bar.showMessage(f"Формат: {fmt.upper()}", 2000)
-        # Обновляем таблицу в batch_tab для отображения статуса
-        self.batch_tab.scan_files()
-    
-    def change_bitrate(self, bitrate: str):
-        self.settings.mp3_bitrate = bitrate
-        self.update_menu_state()
-        self.save_and_sync_settings()
-        self.status_bar.showMessage(f"Битрейт MP3: {bitrate}", 2000)
-    
-    # ===== Действия из меню =====
+    def open_settings(self):
+        """Открыть окно настроек"""
+        dialog = SettingsDialog(self.settings, self)
+        if dialog.exec_():
+            # Получаем обновлённые настройки
+            self.settings = dialog.get_settings()
+            # Сохраняем в QSettings
+            self.save_settings()
+            # Синхронизируем с вкладками
+            self.text_tab.update_settings(self.settings)
+            self.batch_tab.update_settings(self.settings)
+            # Обновляем таблицу в batch_tab (для формата)
+            self.batch_tab.scan_files()
+            self.status_bar.showMessage("Настройки сохранены", 2000)
+            logger.info(f"Настройки обновлены: голос={self.settings.voice}, "
+                       f"ударения={self.settings.accent_model}, "
+                       f"формат={self.settings.output_format}, "
+                       f"битрейт={self.settings.mp3_bitrate}")
     
     def select_working_dir_from_menu(self):
         self.batch_tab.select_working_dir()
@@ -214,8 +126,6 @@ class MainWindow(QMainWindow):
     
     def clear_audio_from_menu(self):
         self.batch_tab.clear_audio()
-    
-    # ===== Загрузка/сохранение настроек =====
     
     def load_settings(self):
         """Загрузка настроек из QSettings"""
@@ -228,8 +138,6 @@ class MainWindow(QMainWindow):
         self.app_settings.set_tts_settings(self.settings.to_dict())
         logger.info(f"Настройки сохранены в QSettings")
     
-    # ===== Геометрия окна =====
-    
     def restore_window_geometry(self):
         geometry = self.app_settings.get_window_geometry()
         if geometry:
@@ -237,8 +145,6 @@ class MainWindow(QMainWindow):
         state = self.app_settings.get_window_state()
         if state:
             self.restoreState(state)
-    
-    # ===== О программе =====
     
     def show_about(self):
         about_text = f"""
@@ -251,12 +157,13 @@ class MainWindow(QMainWindow):
             <li>Ударения: {self.settings.accent_model}</li>
             <li>Формат: {self.settings.output_format}</li>
             <li>Битрейт: {self.settings.mp3_bitrate}</li>
+            <li>Нормализация: {'вкл' if self.settings.normalize_audio else 'выкл'}</li>
+            <li>Удаление тишины: {'вкл' if self.settings.remove_silence else 'выкл'}</li>
         </ul>
         """
         QMessageBox.about(self, "О программе", about_text)
     
     def closeEvent(self, event):
-        """Сохранение геометрии и настроек при закрытии"""
         self.app_settings.set_window_geometry(self.saveGeometry())
         self.app_settings.set_window_state(self.saveState())
         self.save_settings()

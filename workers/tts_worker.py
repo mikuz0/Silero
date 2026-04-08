@@ -2,7 +2,6 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 from pathlib import Path
 import torch
-import torchaudio
 from datetime import datetime
 import traceback
 import sys
@@ -19,10 +18,16 @@ class TTSWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
     
-    def __init__(self, text: str, output_dir: Path, settings: TTSSettings):
+    def __init__(self, text: str, output_path: Path, settings: TTSSettings):
+        """
+        Args:
+            text: Текст для синтеза
+            output_path: Полный путь для сохранения аудиофайла
+            settings: Настройки синтеза
+        """
         super().__init__()
         self.text = text
-        self.output_dir = output_dir
+        self.output_path = output_path
         self.settings = settings
         self._model = None
         self._accentizer = None
@@ -95,7 +100,6 @@ class TTSWorker(QThread):
                 processed_chunks.append(processed)
             except Exception as e:
                 self.log(f"Ошибка обработки части {i+1}: {e}")
-                # При ошибке используем исходный текст без ударений
                 processed_chunks.append(chunk)
         
         return ' '.join(processed_chunks)
@@ -114,7 +118,7 @@ class TTSWorker(QThread):
                 audio_np = audio_np / max_val
             audio_np = (audio_np * 32767).astype(np.int16)
         
-        # Временный WAV файл
+        # Временный WAV файл (в той же папке, где будет итоговый файл)
         temp_wav = output_path.parent / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
         wavfile.write(str(temp_wav), sample_rate, audio_np)
         
@@ -155,6 +159,7 @@ class TTSWorker(QThread):
         try:
             self.log("=== НАЧАЛО СИНТЕЗА ===")
             self.log(f"Длина текста: {len(self.text)} символов")
+            self.log(f"Путь сохранения: {self.output_path}")
             self.log(f"Настройки: голос={self.settings.voice}, "
                     f"ударения={self.settings.accent_model}, "
                     f"формат={self.settings.output_format}, "
@@ -209,10 +214,7 @@ class TTSWorker(QThread):
             
             # Шаг 4: Сохранение
             self.progress.emit(90, "Сохранение аудио...")
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            output_path = self.output_dir / f"tts_{timestamp}"
-            
-            final_path = self.save_audio(audio, output_path, 48000)
+            final_path = self.save_audio(audio, self.output_path, 48000)
             
             self.progress.emit(100, "Готово!")
             self.log(f"Сохранено: {final_path}")

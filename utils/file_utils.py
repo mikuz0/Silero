@@ -11,6 +11,7 @@ class FileUtils:
     
     @staticmethod
     def scan_text_files(directory: Path, recursive: bool = True) -> List[Path]:
+        """Сканирование папки на наличие текстовых файлов"""
         if not directory.exists():
             return []
         
@@ -23,48 +24,69 @@ class FileUtils:
         return sorted(set(text_files))
     
     @staticmethod
-    def get_audio_path(text_file: Path, working_dir: Path, output_format: str = 'mp3') -> Path:
+    def get_audio_path_for_batch(text_file: Path, working_dir: Path, output_format: str = 'mp3') -> Path:
+        """
+        Для пакетной обработки: имя аудиофайла совпадает с именем исходного файла
+        Пример: source/chapter_01.txt → audio/chapter_01.mp3
+        """
         try:
-            rel_path = text_file.relative_to(working_dir)
+            # Получаем путь относительно папки source
+            rel_path = text_file.relative_to(working_dir / 'source')
         except ValueError:
+            # Если файл не в source, используем просто имя
             rel_path = Path(text_file.name)
         
-        audio_path = working_dir / 'audio' / rel_path.with_suffix(f'.{output_format}')
-        return audio_path
+        # Заменяем расширение и помещаем в audio/
+        return working_dir / 'audio' / rel_path.with_suffix(f'.{output_format}')
+    
+    @staticmethod
+    def get_audio_path_for_single(output_dir: Path, output_format: str = 'mp3') -> Path:
+        """
+        Для вкладки Текст: уникальное имя с временной меткой
+        Пример: output/tts_20260407_223015_123456.mp3
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # убираем последние 3 цифры микросекунд
+        return output_dir / f"tts_{timestamp}.{output_format}"
     
     @staticmethod
     def get_source_dir(working_dir: Path) -> Path:
+        """Получить папку с исходными текстами"""
         source_dir = working_dir / 'source'
         source_dir.mkdir(parents=True, exist_ok=True)
         return source_dir
     
     @staticmethod
     def get_audio_dir(working_dir: Path) -> Path:
+        """Получить папку с аудиофайлами"""
         audio_dir = working_dir / 'audio'
         audio_dir.mkdir(parents=True, exist_ok=True)
         return audio_dir
     
     @staticmethod
     def get_logs_dir(working_dir: Path) -> Path:
+        """Получить папку с логами"""
         logs_dir = working_dir / 'logs'
         logs_dir.mkdir(parents=True, exist_ok=True)
         return logs_dir
     
     @staticmethod
     def get_cache_dir(working_dir: Path) -> Path:
+        """Получить папку с кэшем"""
         cache_dir = working_dir / 'cache'
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
     
     @staticmethod
     def get_file_status(text_file: Path, working_dir: Path, output_format: str = 'mp3') -> str:
-        audio_path = FileUtils.get_audio_path(text_file, working_dir, output_format)
+        """Определить статус файла: 'pending' или 'completed'"""
+        audio_path = FileUtils.get_audio_path_for_batch(text_file, working_dir, output_format)
         if audio_path.exists() and audio_path.stat().st_size > 1024:
             return 'completed'
         return 'pending'
     
     @staticmethod
     def clear_audio_files(working_dir: Path):
+        """Удалить все сгенерированные аудиофайлы"""
         audio_dir = FileUtils.get_audio_dir(working_dir)
         if audio_dir.exists():
             shutil.rmtree(audio_dir)
@@ -72,6 +94,7 @@ class FileUtils:
     
     @staticmethod
     def save_processing_log(working_dir: Path, results: List[Dict]) -> Path:
+        """Сохранить лог обработки"""
         logs_dir = FileUtils.get_logs_dir(working_dir)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = logs_dir / f"session_{timestamp}.txt"

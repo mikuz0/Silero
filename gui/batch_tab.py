@@ -136,11 +136,13 @@ class BatchTab(QWidget):
                 rel_path = file_path.name
             self.table.setItem(i, 1, QTableWidgetItem(str(rel_path)))
             
+            # Используем новый метод get_audio_path_for_batch
             status = FileUtils.get_file_status(file_path, self.working_dir, self.settings.output_format)
             status_text = "✅ Обработан" if status == 'completed' else "⏳ Ожидает"
             self.table.setItem(i, 2, QTableWidgetItem(status_text))
             
-            audio_path = FileUtils.get_audio_path(file_path, self.working_dir, self.settings.output_format)
+            # Используем новый метод get_audio_path_for_batch
+            audio_path = FileUtils.get_audio_path_for_batch(file_path, self.working_dir, self.settings.output_format)
             self.table.setItem(i, 3, QTableWidgetItem(audio_path.name if audio_path.exists() else "-"))
         
         self.table.resizeColumnsToContents()

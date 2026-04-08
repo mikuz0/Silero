@@ -1,3 +1,4 @@
+"""Вкладка для обработки текста"""
 from pathlib import Path
 
 from PyQt5.QtWidgets import (
@@ -156,12 +157,15 @@ class TextTab(QWidget):
         
         audio_dir = FileUtils.get_audio_dir(self.working_dir)
         
+        # Генерируем уникальное имя с временной меткой
+        output_path = FileUtils.get_audio_path_for_single(audio_dir, self.settings.output_format)
+        
         self.synthesize_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("Инициализация...")
         
-        self.worker = TTSWorker(text, audio_dir, self.settings)
+        self.worker = TTSWorker(text, output_path, self.settings)
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.synthesis_finished)
         self.worker.error.connect(self.synthesis_error)
@@ -190,6 +194,14 @@ class TextTab(QWidget):
         self.progress_bar.setVisible(False)
         self.status_label.setText(f"❌ Ошибка: {error_msg[:100]}...")
         logger.error(f"Ошибка синтеза: {error_msg}")
+    
+    def stop_synthesis(self):
+        if self.worker:
+            self.worker.stop()
+            self.worker = None
+            self.status_label.setText("Остановлено пользователем")
+            self.synthesize_btn.setEnabled(True)
+            self.progress_bar.setVisible(False)
     
     def update_settings(self, settings: TTSSettings):
         self.settings = settings
