@@ -72,9 +72,16 @@ class AppSettings:
             'output_format': self.qsettings.value('tts_output_format', 'mp3'),
             'mp3_bitrate': self.qsettings.value('tts_mp3_bitrate', '192k'),
             'normalize_audio': self.qsettings.value('tts_normalize_audio', True, type=bool),
-            'remove_silence': self.qsettings.value('tts_remove_silence', True, type=bool),
             'split_sentences': self.qsettings.value('tts_split_sentences', True, type=bool),
-            'sentence_pause': self.qsettings.value('tts_sentence_pause', 0.3, type=float)
+            'sentence_pause': self.qsettings.value('tts_sentence_pause', 0.3, type=float),
+            'eq_enabled': self.qsettings.value('tts_eq_enabled', False, type=bool),
+            'eq_80': self.qsettings.value('tts_eq_80', 0, type=int),
+            'eq_200': self.qsettings.value('tts_eq_200', 0, type=int),
+            'eq_500': self.qsettings.value('tts_eq_500', 0, type=int),
+            'eq_1000': self.qsettings.value('tts_eq_1000', 0, type=int),
+            'eq_2000': self.qsettings.value('tts_eq_2000', 0, type=int),
+            'eq_4000': self.qsettings.value('tts_eq_4000', 0, type=int),
+            'eq_8000': self.qsettings.value('tts_eq_8000', 0, type=int)
         }
     
     def set_tts_settings(self, settings: Dict):
@@ -94,8 +101,16 @@ class TTSSettings:
         self.output_format = "mp3"
         self.mp3_bitrate = "192k"
         self.normalize_audio = True
-        self.remove_silence = True
-        self.silence_threshold = -50
+        
+        # Параметры эквалайзера
+        self.eq_enabled = False
+        self.eq_80 = 0
+        self.eq_200 = 0
+        self.eq_500 = 0
+        self.eq_1000 = 0
+        self.eq_2000 = 0
+        self.eq_4000 = 0
+        self.eq_8000 = 0
     
     def load_from_dict(self, data: Dict):
         for key, value in data.items():
@@ -113,6 +128,12 @@ class TTSSettings:
             'output_format': self.output_format,
             'mp3_bitrate': self.mp3_bitrate,
             'normalize_audio': self.normalize_audio,
-            'remove_silence': self.remove_silence,
-            'silence_threshold': self.silence_threshold
+            'eq_enabled': self.eq_enabled,
+            'eq_80': self.eq_80,
+            'eq_200': self.eq_200,
+            'eq_500': self.eq_500,
+            'eq_1000': self.eq_1000,
+            'eq_2000': self.eq_2000,
+            'eq_4000': self.eq_4000,
+            'eq_8000': self.eq_8000
         }

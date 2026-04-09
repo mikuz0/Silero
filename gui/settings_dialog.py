@@ -2,7 +2,8 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QCheckBox, QPushButton, QGroupBox,
-    QRadioButton, QButtonGroup
+    QRadioButton, QButtonGroup, QSlider, QTabWidget,
+    QWidget
 )
 from PyQt5.QtCore import Qt
 
@@ -16,8 +17,8 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Настройки")
-        self.setMinimumWidth(450)
-        self.setMinimumHeight(400)
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(500)
         self.setModal(True)
         
         self.init_ui()
@@ -26,6 +27,43 @@ class SettingsDialog(QDialog):
     def init_ui(self):
         """Инициализация интерфейса"""
         layout = QVBoxLayout(self)
+        
+        # Создаём вкладки
+        tabs = QTabWidget()
+        
+        # Вкладка: Основные настройки
+        main_tab = self.create_main_tab()
+        tabs.addTab(main_tab, "Основные")
+        
+        # Вкладка: Эквалайзер
+        eq_tab = self.create_eq_tab()
+        tabs.addTab(eq_tab, "Эквалайзер")
+        
+        layout.addWidget(tabs)
+        
+        # Кнопки внизу
+        btn_layout = QHBoxLayout()
+        
+        self.apply_btn = QPushButton("Применить")
+        self.apply_btn.clicked.connect(self.apply_settings)
+        
+        self.save_btn = QPushButton("Сохранить")
+        self.save_btn.clicked.connect(self.save_settings)
+        
+        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.apply_btn)
+        btn_layout.addWidget(self.save_btn)
+        btn_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def create_main_tab(self) -> QWidget:
+        """Создание вкладки с основными настройками"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
         
         # ===== Группа: Голос =====
         voice_group = QGroupBox("Голос")
@@ -65,11 +103,7 @@ class SettingsDialog(QDialog):
         self.normalize_cb = QCheckBox("Нормализация громкости")
         self.normalize_cb.setToolTip("Выравнивает громкость аудио")
         
-        self.remove_silence_cb = QCheckBox("Удаление тишины в начале и конце")
-        self.remove_silence_cb.setToolTip("Обрезает длинные паузы")
-        
         postprocess_layout.addWidget(self.normalize_cb)
-        postprocess_layout.addWidget(self.remove_silence_cb)
         
         postprocess_group.setLayout(postprocess_layout)
         layout.addWidget(postprocess_group)
@@ -100,24 +134,94 @@ class SettingsDialog(QDialog):
         format_group.setLayout(format_layout)
         layout.addWidget(format_group)
         
-        # ===== Кнопки =====
-        btn_layout = QHBoxLayout()
+        layout.addStretch()
         
-        self.apply_btn = QPushButton("Применить")
-        self.apply_btn.clicked.connect(self.apply_settings)
+        return tab
+    
+    def create_eq_tab(self) -> QWidget:
+        """Создание вкладки с эквалайзером (вертикальные слайдеры)"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
         
-        self.save_btn = QPushButton("Сохранить")
-        self.save_btn.clicked.connect(self.save_settings)
+        # Чекбокс включения эквалайзера
+        self.eq_enabled_cb = QCheckBox("Включить эквалайзер")
+        self.eq_enabled_cb.setToolTip("Применять частотную коррекцию к аудио")
+        layout.addWidget(self.eq_enabled_cb)
         
-        self.cancel_btn = QPushButton("Отмена")
-        self.cancel_btn.clicked.connect(self.reject)
+        # Контейнер для слайдеров
+        sliders_layout = QHBoxLayout()
+        sliders_layout.setSpacing(20)
         
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.apply_btn)
-        btn_layout.addWidget(self.save_btn)
-        btn_layout.addWidget(self.cancel_btn)
+        # Данные для слайдеров: (частота, название)
+        eq_bands = [
+            (80, "80 Hz"),
+            (200, "200 Hz"),
+            (500, "500 Hz"),
+            (1000, "1000 Hz"),
+            (2000, "2000 Hz"),
+            (4000, "4000 Hz"),
+            (8000, "8000 Hz")
+        ]
         
-        layout.addLayout(btn_layout)
+        self.eq_sliders = {}
+        self.eq_labels = {}
+        
+        for freq, name in eq_bands:
+            # Вертикальная колонка
+            col_layout = QVBoxLayout()
+            col_layout.setAlignment(Qt.AlignCenter)
+            
+            # Вертикальный слайдер
+            slider = QSlider(Qt.Vertical)
+            slider.setRange(-6, 6)
+            slider.setTickInterval(1)
+            slider.setTickPosition(QSlider.TicksRight)
+            slider.setFixedHeight(200)
+            slider.setFixedWidth(50)
+            slider.valueChanged.connect(lambda v, f=freq: self.on_eq_value_changed(f, v))
+            col_layout.addWidget(slider, alignment=Qt.AlignCenter)
+            
+            # Значение dB
+            value_label = QLabel("0 dB")
+            value_label.setAlignment(Qt.AlignCenter)
+            value_label.setFixedWidth(50)
+            col_layout.addWidget(value_label)
+            
+            # Подпись частоты
+            freq_label = QLabel(name)
+            freq_label.setAlignment(Qt.AlignCenter)
+            freq_label.setFixedWidth(50)
+            col_layout.addWidget(freq_label)
+            
+            sliders_layout.addLayout(col_layout)
+            
+            self.eq_sliders[freq] = slider
+            self.eq_labels[freq] = value_label
+        
+        layout.addLayout(sliders_layout)
+        
+        # Кнопка сброса
+        reset_btn = QPushButton("Сбросить все настройки эквалайзера")
+        reset_btn.clicked.connect(self.reset_eq)
+        layout.addWidget(reset_btn, alignment=Qt.AlignCenter)
+        
+        layout.addStretch()
+        
+        return tab
+    
+    def on_eq_value_changed(self, freq: int, value: int):
+        """Обновление отображения значения dB для полосы"""
+        label = self.eq_labels.get(freq)
+        if label:
+            if value > 0:
+                label.setText(f"+{value} dB")
+            else:
+                label.setText(f"{value} dB")
+    
+    def reset_eq(self):
+        """Сброс всех настроек эквалайзера в 0"""
+        for freq, slider in self.eq_sliders.items():
+            slider.setValue(0)
     
     def on_format_changed(self, fmt: str):
         """При изменении формата включаем/выключаем выбор битрейта"""
@@ -125,37 +229,41 @@ class SettingsDialog(QDialog):
     
     def load_settings(self):
         """Загрузка текущих настроек в UI"""
-        # Голос
+        # Основные настройки
         index = self.voice_combo.findText(self.settings.voice)
         if index >= 0:
             self.voice_combo.setCurrentIndex(index)
         
-        # Ударения
         if self.settings.accent_model == 'accurate':
             self.accent_accurate_radio.setChecked(True)
         else:
             self.accent_fast_radio.setChecked(True)
         
-        # Постобработка
         self.normalize_cb.setChecked(self.settings.normalize_audio)
-        self.remove_silence_cb.setChecked(self.settings.remove_silence)
         
-        # Формат
         index = self.format_combo.findText(self.settings.output_format)
         if index >= 0:
             self.format_combo.setCurrentIndex(index)
         
-        # Битрейт
         index = self.bitrate_combo.findText(self.settings.mp3_bitrate)
         if index >= 0:
             self.bitrate_combo.setCurrentIndex(index)
         
-        # Обновляем состояние битрейта
         self.bitrate_combo.setEnabled(self.settings.output_format == "mp3")
+        
+        # Настройки эквалайзера
+        self.eq_enabled_cb.setChecked(self.settings.eq_enabled)
+        
+        self.eq_sliders[80].setValue(self.settings.eq_80)
+        self.eq_sliders[200].setValue(self.settings.eq_200)
+        self.eq_sliders[500].setValue(self.settings.eq_500)
+        self.eq_sliders[1000].setValue(self.settings.eq_1000)
+        self.eq_sliders[2000].setValue(self.settings.eq_2000)
+        self.eq_sliders[4000].setValue(self.settings.eq_4000)
+        self.eq_sliders[8000].setValue(self.settings.eq_8000)
     
     def get_settings_from_ui(self) -> dict:
         """Получить настройки из UI"""
-        # Определяем модель ударений
         if self.accent_accurate_radio.isChecked():
             accent_model = 'accurate'
         else:
@@ -165,22 +273,25 @@ class SettingsDialog(QDialog):
             'voice': self.voice_combo.currentText(),
             'accent_model': accent_model,
             'normalize_audio': self.normalize_cb.isChecked(),
-            'remove_silence': self.remove_silence_cb.isChecked(),
             'output_format': self.format_combo.currentText(),
-            'mp3_bitrate': self.bitrate_combo.currentText()
+            'mp3_bitrate': self.bitrate_combo.currentText(),
+            'eq_enabled': self.eq_enabled_cb.isChecked(),
+            'eq_80': self.eq_sliders[80].value(),
+            'eq_200': self.eq_sliders[200].value(),
+            'eq_500': self.eq_sliders[500].value(),
+            'eq_1000': self.eq_sliders[1000].value(),
+            'eq_2000': self.eq_sliders[2000].value(),
+            'eq_4000': self.eq_sliders[4000].value(),
+            'eq_8000': self.eq_sliders[8000].value()
         }
     
     def apply_settings(self):
         """Применить настройки без закрытия окна"""
         new_settings = self.get_settings_from_ui()
         
-        # Обновляем объект настроек
         for key, value in new_settings.items():
             if hasattr(self.settings, key):
                 setattr(self.settings, key, value)
-        
-        # Сигнал о применении (можно использовать для обновления UI)
-        self.accept()  # Временно закрываем, можно заменить на сигнал
     
     def save_settings(self):
         """Сохранить настройки и закрыть окно"""

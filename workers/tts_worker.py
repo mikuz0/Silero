@@ -19,12 +19,6 @@ class TTSWorker(QThread):
     error = pyqtSignal(str)
     
     def __init__(self, text: str, output_path: Path, settings: TTSSettings):
-        """
-        Args:
-            text: Текст для синтеза
-            output_path: Полный путь для сохранения аудиофайла
-            settings: Настройки синтеза
-        """
         super().__init__()
         self.text = text
         self.output_path = output_path
@@ -72,7 +66,6 @@ class TTSWorker(QThread):
         if self._accentizer is None:
             self._accentizer = RUAccent()
             
-            # Выбор модели из настроек
             if self.settings.accent_model == 'accurate':
                 model_type = 'big_poetry'
             else:
@@ -87,8 +80,8 @@ class TTSWorker(QThread):
             )
             self.log("RUAccent загружен")
         
-        # Разбиваем текст на части для стабильности
-        chunks = self.split_text_into_chunks(text, max_chunk_size=200)
+        # Уменьшаем размер чанка для стабильности (150 символов)
+        chunks = self.split_text_into_chunks(text, max_chunk_size=150)
         self.log(f"Разбито на {len(chunks)} частей для расстановки ударений")
         
         processed_chunks = []
@@ -98,37 +91,66 @@ class TTSWorker(QThread):
             try:
                 processed = self._accentizer.process_all(chunk)
                 processed_chunks.append(processed)
+                self.log(f"Часть {i+1}/{len(chunks)} обработана")
             except Exception as e:
                 self.log(f"Ошибка обработки части {i+1}: {e}")
                 processed_chunks.append(chunk)
         
-        return ' '.join(processed_chunks)
+        result = ' '.join(processed_chunks)
+        self.log(f"Расстановка ударений завершена, длина текста: {len(result)} символов")
+        return result
+    
+    def build_filters(self) -> str:
+        """Построение строки фильтров для FFmpeg"""
+        filters = []
+        
+        # Нормализация громкости
+        if self.settings.normalize_audio:
+            filters.append("loudnorm=I=-16:LRA=11:TP=-1.5")
+        
+        # Эквалайзер (7 полос)
+        if self.settings.eq_enabled:
+            if self.settings.eq_80 != 0:
+                filters.append(f"equalizer=f=80:width_type=h:width=40:g={self.settings.eq_80}")
+            if self.settings.eq_200 != 0:
+                filters.append(f"equalizer=f=200:width_type=h:width=100:g={self.settings.eq_200}")
+            if self.settings.eq_500 != 0:
+                filters.append(f"equalizer=f=500:width_type=h:width=200:g={self.settings.eq_500}")
+            if self.settings.eq_1000 != 0:
+                filters.append(f"equalizer=f=1000:width_type=h:width=200:g={self.settings.eq_1000}")
+            if self.settings.eq_2000 != 0:
+                filters.append(f"equalizer=f=2000:width_type=h:width=400:g={self.settings.eq_2000}")
+            if self.settings.eq_4000 != 0:
+                filters.append(f"equalizer=f=4000:width_type=h:width=800:g={self.settings.eq_4000}")
+            if self.settings.eq_8000 != 0:
+                filters.append(f"equalizer=f=8000:width_type=h:width=1600:g={self.settings.eq_8000}")
+        
+        return ",".join(filters) if filters else "anull"
     
     def save_audio(self, audio: torch.Tensor, output_path: Path, sample_rate: int = 48000):
-        """Сохранение аудио в MP3 или WAV с указанным битрейтом"""
+        """Сохранение аудио в MP3 или WAV с постобработкой"""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Конвертируем в numpy
         audio_np = audio.cpu().numpy()
         
-        # Нормализуем в int16
         if audio_np.dtype == torch.float32 or audio_np.dtype == torch.float64:
             max_val = np.max(np.abs(audio_np))
             if max_val > 0:
                 audio_np = audio_np / max_val
             audio_np = (audio_np * 32767).astype(np.int16)
         
-        # Временный WAV файл (в той же папке, где будет итоговый файл)
         temp_wav = output_path.parent / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
         wavfile.write(str(temp_wav), sample_rate, audio_np)
+        
+        filter_str = self.build_filters()
         
         if self.settings.output_format == 'mp3':
             mp3_path = output_path.with_suffix('.mp3')
             bitrate_value = self.settings.mp3_bitrate.replace('k', '')
-            self.log(f"Конвертация в MP3 с битрейтом {bitrate_value} kbps")
             
             cmd = [
                 'ffmpeg', '-y', '-i', str(temp_wav),
+                '-af', filter_str,
                 '-codec:a', 'libmp3lame',
                 '-b:a', f'{bitrate_value}k',
                 '-ar', str(sample_rate),
@@ -136,11 +158,31 @@ class TTSWorker(QThread):
                 str(mp3_path)
             ]
             
+            self.log(f"Конвертация в MP3 с битрейтом {bitrate_value} kbps")
+            self.log(f"Фильтры: {filter_str[:100]}...")
+            
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if result.returncode == 0 and mp3_path.exists():
                     temp_wav.unlink()
                     self.log(f"MP3 создан, размер: {mp3_path.stat().st_size / 1024:.1f} KB")
+                    
+                    # Проверяем битрейт
+                    try:
+                        probe_cmd = [
+                            'ffprobe', '-v', 'error',
+                            '-select_streams', 'a:0',
+                            '-show_entries', 'format=bit_rate',
+                            '-of', 'default=noprint_wrappers=1:nokey=1',
+                            str(mp3_path)
+                        ]
+                        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+                        if probe_result.returncode == 0 and probe_result.stdout.strip():
+                            actual_bitrate = int(probe_result.stdout.strip()) // 1000
+                            self.log(f"Фактический битрейт: {actual_bitrate} kbps")
+                    except:
+                        pass
+                    
                     return mp3_path
                 else:
                     raise Exception("FFmpeg error")
@@ -163,9 +205,9 @@ class TTSWorker(QThread):
             self.log(f"Настройки: голос={self.settings.voice}, "
                     f"ударения={self.settings.accent_model}, "
                     f"формат={self.settings.output_format}, "
-                    f"битрейт={self.settings.mp3_bitrate}")
+                    f"битрейт={self.settings.mp3_bitrate}, "
+                    f"эквалайзер={'вкл' if self.settings.eq_enabled else 'выкл'}")
             
-            # Шаг 1: Расстановка ударений
             self.progress.emit(10, "Расстановка ударений...")
             text = self.process_with_ruaccent(self.text)
             
@@ -173,7 +215,6 @@ class TTSWorker(QThread):
                 self.error.emit("Ошибка обработки текста")
                 return
             
-            # Шаг 2: Загрузка Silero
             self.progress.emit(30, "Загрузка модели Silero...")
             if self._model is None:
                 self._model, _ = torch.hub.load(
@@ -182,7 +223,6 @@ class TTSWorker(QThread):
                 )
                 self.log("Silero загружен")
             
-            # Шаг 3: Синтез речи
             self.progress.emit(40, "Синтез речи...")
             chunks = self.split_text_into_chunks(text, max_chunk_size=300)
             audio_segments = []
@@ -201,7 +241,6 @@ class TTSWorker(QThread):
                 )
                 audio_segments.append(audio)
                 
-                # Пауза между частями
                 if i < len(chunks) - 1:
                     pause = torch.zeros(int(0.3 * 48000))
                     audio_segments.append(pause)
@@ -212,7 +251,6 @@ class TTSWorker(QThread):
             
             audio = torch.cat(audio_segments)
             
-            # Шаг 4: Сохранение
             self.progress.emit(90, "Сохранение аудио...")
             final_path = self.save_audio(audio, self.output_path, 48000)
             
