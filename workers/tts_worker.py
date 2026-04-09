@@ -80,7 +80,7 @@ class TTSWorker(QThread):
             )
             self.log("RUAccent загружен")
         
-        # Уменьшаем размер чанка для стабильности (150 символов)
+        # Разбиваем на чанки по 150 символов для стабильности
         chunks = self.split_text_into_chunks(text, max_chunk_size=150)
         self.log(f"Разбито на {len(chunks)} частей для расстановки ударений")
         
@@ -206,6 +206,7 @@ class TTSWorker(QThread):
                     f"ударения={self.settings.accent_model}, "
                     f"формат={self.settings.output_format}, "
                     f"битрейт={self.settings.mp3_bitrate}, "
+                    f"чанк={self.settings.chunk_size}, "
                     f"эквалайзер={'вкл' if self.settings.eq_enabled else 'выкл'}")
             
             self.progress.emit(10, "Расстановка ударений...")
@@ -224,7 +225,10 @@ class TTSWorker(QThread):
                 self.log("Silero загружен")
             
             self.progress.emit(40, "Синтез речи...")
-            chunks = self.split_text_into_chunks(text, max_chunk_size=300)
+            # Используем настройку chunk_size вместо жёсткого значения
+            chunks = self.split_text_into_chunks(text, max_chunk_size=self.settings.chunk_size)
+            self.log(f"Разбито на {len(chunks)} частей для синтеза (размер чанка: {self.settings.chunk_size})")
+            
             audio_segments = []
             
             for i, chunk in enumerate(chunks):
@@ -233,6 +237,7 @@ class TTSWorker(QThread):
                     return
                 
                 self.progress.emit(40 + int((i / len(chunks)) * 50), f"Синтез части {i+1}/{len(chunks)}...")
+                self.log(f"Синтез части {i+1}/{len(chunks)}: {len(chunk)} символов")
                 
                 audio = self._model.apply_tts(
                     text=chunk,

@@ -26,6 +26,7 @@ class AppConfig:
     
     DEFAULT_MP3_BITRATE = "192k"
     DEFAULT_OUTPUT_FORMAT = "mp3"
+    DEFAULT_CHUNK_SIZE = 300
     
     SUPPORTED_INPUT = ['.txt', '.md', '.rst']
     
@@ -74,6 +75,7 @@ class AppSettings:
             'normalize_audio': self.qsettings.value('tts_normalize_audio', True, type=bool),
             'split_sentences': self.qsettings.value('tts_split_sentences', True, type=bool),
             'sentence_pause': self.qsettings.value('tts_sentence_pause', 0.3, type=float),
+            'chunk_size': self.qsettings.value('tts_chunk_size', 300, type=int),
             'eq_enabled': self.qsettings.value('tts_eq_enabled', False, type=bool),
             'eq_80': self.qsettings.value('tts_eq_80', 0, type=int),
             'eq_200': self.qsettings.value('tts_eq_200', 0, type=int),
@@ -101,6 +103,7 @@ class TTSSettings:
         self.output_format = "mp3"
         self.mp3_bitrate = "192k"
         self.normalize_audio = True
+        self.chunk_size = 300
         
         # Параметры эквалайзера
         self.eq_enabled = False
@@ -128,6 +131,7 @@ class TTSSettings:
             'output_format': self.output_format,
             'mp3_bitrate': self.mp3_bitrate,
             'normalize_audio': self.normalize_audio,
+            'chunk_size': self.chunk_size,
             'eq_enabled': self.eq_enabled,
             'eq_80': self.eq_80,
             'eq_200': self.eq_200,

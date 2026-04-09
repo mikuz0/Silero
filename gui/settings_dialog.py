@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QCheckBox, QPushButton, QGroupBox,
     QRadioButton, QButtonGroup, QSlider, QTabWidget,
-    QWidget
+    QWidget, QSpinBox
 )
 from PyQt5.QtCore import Qt
 
@@ -134,6 +134,30 @@ class SettingsDialog(QDialog):
         format_group.setLayout(format_layout)
         layout.addWidget(format_group)
         
+        # ===== Группа: Синтез =====
+        synthesis_group = QGroupBox("Синтез")
+        synthesis_layout = QVBoxLayout()
+        
+        # Длина чанка
+        chunk_row = QHBoxLayout()
+        chunk_row.addWidget(QLabel("Длина чанка для синтеза:"))
+        self.chunk_size_spin = QSpinBox()
+        self.chunk_size_spin.setRange(150, 600)
+        self.chunk_size_spin.setSingleStep(50)
+        self.chunk_size_spin.setSuffix(" символов")
+        self.chunk_size_spin.setToolTip("Короткие чанки (200-300) — стабильнее, длинные (400-600) — плавнее")
+        chunk_row.addWidget(self.chunk_size_spin)
+        chunk_row.addStretch()
+        synthesis_layout.addLayout(chunk_row)
+        
+        # Пояснение
+        chunk_info = QLabel("Совет: для длинных книг увеличьте чанк до 400-500 символов")
+        chunk_info.setStyleSheet("color: gray; font-size: 10px;")
+        synthesis_layout.addWidget(chunk_info)
+        
+        synthesis_group.setLayout(synthesis_layout)
+        layout.addWidget(synthesis_group)
+        
         layout.addStretch()
         
         return tab
@@ -251,6 +275,9 @@ class SettingsDialog(QDialog):
         
         self.bitrate_combo.setEnabled(self.settings.output_format == "mp3")
         
+        # Длина чанка
+        self.chunk_size_spin.setValue(self.settings.chunk_size)
+        
         # Настройки эквалайзера
         self.eq_enabled_cb.setChecked(self.settings.eq_enabled)
         
@@ -275,6 +302,7 @@ class SettingsDialog(QDialog):
             'normalize_audio': self.normalize_cb.isChecked(),
             'output_format': self.format_combo.currentText(),
             'mp3_bitrate': self.bitrate_combo.currentText(),
+            'chunk_size': self.chunk_size_spin.value(),
             'eq_enabled': self.eq_enabled_cb.isChecked(),
             'eq_80': self.eq_sliders[80].value(),
             'eq_200': self.eq_sliders[200].value(),
