@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QCheckBox, QPushButton, QGroupBox,
     QRadioButton, QButtonGroup, QSlider, QTabWidget,
-    QWidget, QSpinBox
+    QWidget, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt
 
@@ -34,6 +34,10 @@ class SettingsDialog(QDialog):
         # Вкладка: Основные настройки
         main_tab = self.create_main_tab()
         tabs.addTab(main_tab, "Основные")
+        
+        # Вкладка: Постобработка
+        postprocess_tab = self.create_postprocess_tab()
+        tabs.addTab(postprocess_tab, "Постобработка")
         
         # Вкладка: Эквалайзер
         eq_tab = self.create_eq_tab()
@@ -96,18 +100,6 @@ class SettingsDialog(QDialog):
         accent_group.setLayout(accent_layout)
         layout.addWidget(accent_group)
         
-        # ===== Группа: Постобработка =====
-        postprocess_group = QGroupBox("Постобработка")
-        postprocess_layout = QVBoxLayout()
-        
-        self.normalize_cb = QCheckBox("Нормализация громкости")
-        self.normalize_cb.setToolTip("Выравнивает громкость аудио")
-        
-        postprocess_layout.addWidget(self.normalize_cb)
-        
-        postprocess_group.setLayout(postprocess_layout)
-        layout.addWidget(postprocess_group)
-        
         # ===== Группа: Формат и битрейт =====
         format_group = QGroupBox("Формат аудио")
         format_layout = QVBoxLayout()
@@ -161,6 +153,94 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         
         return tab
+    
+    def create_postprocess_tab(self) -> QWidget:
+        """Создание вкладки с настройками постобработки"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # ===== Группа: Нормализация =====
+        normalize_group = QGroupBox("Нормализация")
+        normalize_layout = QVBoxLayout()
+        
+        self.normalize_cb = QCheckBox("Нормализация громкости (loudnorm)")
+        self.normalize_cb.setToolTip("Выравнивает громкость аудио до стандартного уровня")
+        normalize_layout.addWidget(self.normalize_cb)
+        
+        normalize_group.setLayout(normalize_layout)
+        layout.addWidget(normalize_group)
+        
+        # ===== Группа: LogMMSE шумоподавление =====
+        logmmse_group = QGroupBox("LogMMSE шумоподавление")
+        logmmse_layout = QVBoxLayout()
+        
+        # Чекбокс включения
+        self.logmmse_cb = QCheckBox("Включить LogMMSE шумоподавление")
+        self.logmmse_cb.setToolTip("Убирает артефакты синтеза и хрипотцу")
+        self.logmmse_cb.toggled.connect(self.on_logmmse_toggled)
+        logmmse_layout.addWidget(self.logmmse_cb)
+        
+        # Интенсивность (initial_noise)
+        noise_layout = QHBoxLayout()
+        noise_layout.addWidget(QLabel("Интенсивность шумоподавления (initial_noise):"))
+        self.logmmse_noise_slider = QSlider(Qt.Horizontal)
+        self.logmmse_noise_slider.setRange(0, 20)
+        self.logmmse_noise_slider.setTickInterval(5)
+        self.logmmse_noise_slider.setTickPosition(QSlider.TicksBelow)
+        self.logmmse_noise_slider.setFixedWidth(200)
+        self.logmmse_noise_slider.valueChanged.connect(self.on_logmmse_noise_changed)
+        noise_layout.addWidget(self.logmmse_noise_slider)
+        self.logmmse_noise_label = QLabel("6")
+        noise_layout.addWidget(self.logmmse_noise_label)
+        noise_layout.addStretch()
+        logmmse_layout.addLayout(noise_layout)
+        
+        # Размер окна (window_size)
+        window_layout = QHBoxLayout()
+        window_layout.addWidget(QLabel("Размер окна анализа (window_size):"))
+        self.logmmse_window_spin = QSpinBox()
+        self.logmmse_window_spin.setRange(0, 10000)
+        self.logmmse_window_spin.setSingleStep(100)
+        self.logmmse_window_spin.setSuffix(" семплов")
+        self.logmmse_window_spin.setToolTip("0 = автоматический выбор (0.02 × частота дискретизации)")
+        window_layout.addWidget(self.logmmse_window_spin)
+        window_layout.addStretch()
+        logmmse_layout.addLayout(window_layout)
+        
+        # Порог VAD (noise_threshold)
+        threshold_layout = QHBoxLayout()
+        threshold_layout.addWidget(QLabel("Порог обновления шума (noise_threshold):"))
+        self.logmmse_threshold_spin = QDoubleSpinBox()
+        self.logmmse_threshold_spin.setRange(0.0, 1.0)
+        self.logmmse_threshold_spin.setSingleStep(0.01)
+        self.logmmse_threshold_spin.setDecimals(2)
+        self.logmmse_threshold_spin.setToolTip("Ниже этого порога профиль шума обновляется")
+        threshold_layout.addWidget(self.logmmse_threshold_spin)
+        threshold_layout.addStretch()
+        logmmse_layout.addLayout(threshold_layout)
+        
+        # Пояснение
+        logmmse_info = QLabel("Совет: initial_noise=6, window_size=0, noise_threshold=0.15 — оптимально для синтезированной речи")
+        logmmse_info.setStyleSheet("color: gray; font-size: 10px;")
+        logmmse_layout.addWidget(logmmse_info)
+        
+        logmmse_group.setLayout(logmmse_layout)
+        layout.addWidget(logmmse_group)
+        
+        layout.addStretch()
+        
+        return tab
+    
+    def on_logmmse_toggled(self, checked: bool):
+        """При включении/выключении LogMMSE обновляем состояние элементов"""
+        self.logmmse_noise_slider.setEnabled(checked)
+        self.logmmse_noise_label.setEnabled(checked)
+        self.logmmse_window_spin.setEnabled(checked)
+        self.logmmse_threshold_spin.setEnabled(checked)
+    
+    def on_logmmse_noise_changed(self, value: int):
+        """Обновление отображения значения интенсивности LogMMSE"""
+        self.logmmse_noise_label.setText(str(value))
     
     def create_eq_tab(self) -> QWidget:
         """Создание вкладки с эквалайзером (вертикальные слайдеры)"""
@@ -263,8 +343,6 @@ class SettingsDialog(QDialog):
         else:
             self.accent_fast_radio.setChecked(True)
         
-        self.normalize_cb.setChecked(self.settings.normalize_audio)
-        
         index = self.format_combo.findText(self.settings.output_format)
         if index >= 0:
             self.format_combo.setCurrentIndex(index)
@@ -277,6 +355,23 @@ class SettingsDialog(QDialog):
         
         # Длина чанка
         self.chunk_size_spin.setValue(self.settings.chunk_size)
+        
+        # Настройки постобработки
+        self.normalize_cb.setChecked(self.settings.normalize_audio)
+        
+        # LogMMSE
+        self.logmmse_cb.setChecked(self.settings.logmmse_enabled)
+        self.logmmse_noise_slider.setValue(self.settings.logmmse_initial_noise)
+        self.logmmse_noise_label.setText(str(self.settings.logmmse_initial_noise))
+        self.logmmse_window_spin.setValue(self.settings.logmmse_window_size)
+        self.logmmse_threshold_spin.setValue(self.settings.logmmse_noise_threshold)
+        
+        # Обновляем состояние элементов LogMMSE
+        enabled = self.settings.logmmse_enabled
+        self.logmmse_noise_slider.setEnabled(enabled)
+        self.logmmse_noise_label.setEnabled(enabled)
+        self.logmmse_window_spin.setEnabled(enabled)
+        self.logmmse_threshold_spin.setEnabled(enabled)
         
         # Настройки эквалайзера
         self.eq_enabled_cb.setChecked(self.settings.eq_enabled)
@@ -299,10 +394,10 @@ class SettingsDialog(QDialog):
         return {
             'voice': self.voice_combo.currentText(),
             'accent_model': accent_model,
-            'normalize_audio': self.normalize_cb.isChecked(),
             'output_format': self.format_combo.currentText(),
             'mp3_bitrate': self.bitrate_combo.currentText(),
             'chunk_size': self.chunk_size_spin.value(),
+            'normalize_audio': self.normalize_cb.isChecked(),
             'eq_enabled': self.eq_enabled_cb.isChecked(),
             'eq_80': self.eq_sliders[80].value(),
             'eq_200': self.eq_sliders[200].value(),
@@ -310,7 +405,11 @@ class SettingsDialog(QDialog):
             'eq_1000': self.eq_sliders[1000].value(),
             'eq_2000': self.eq_sliders[2000].value(),
             'eq_4000': self.eq_sliders[4000].value(),
-            'eq_8000': self.eq_sliders[8000].value()
+            'eq_8000': self.eq_sliders[8000].value(),
+            'logmmse_enabled': self.logmmse_cb.isChecked(),
+            'logmmse_initial_noise': self.logmmse_noise_slider.value(),
+            'logmmse_window_size': self.logmmse_window_spin.value(),
+            'logmmse_noise_threshold': self.logmmse_threshold_spin.value()
         }
     
     def apply_settings(self):

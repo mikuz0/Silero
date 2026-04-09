@@ -101,12 +101,8 @@ class TTSWorker(QThread):
         return result
     
     def build_filters(self) -> str:
-        """Построение строки фильтров для FFmpeg"""
+        """Построение строки фильтров для FFmpeg (эквалайзер)"""
         filters = []
-        
-        # Нормализация громкости
-        if self.settings.normalize_audio:
-            filters.append("loudnorm=I=-16:LRA=11:TP=-1.5")
         
         # Эквалайзер (7 полос)
         if self.settings.eq_enabled:
@@ -127,6 +123,70 @@ class TTSWorker(QThread):
         
         return ",".join(filters) if filters else "anull"
     
+    def apply_logmmse(self, input_path: Path, output_path: Path, sample_rate: int) -> Path:
+        """Применение LogMMSE шумоподавления к аудиофайлу"""
+        try:
+            from logmmse import logmmse
+        except ImportError:
+            self.log("LogMMSE не установлен. Установите: pip install logmmse")
+            return input_path
+        
+        self.log(f"Применение LogMMSE шумоподавления: "
+                f"initial_noise={self.settings.logmmse_initial_noise}, "
+                f"window_size={self.settings.logmmse_window_size}, "
+                f"noise_threshold={self.settings.logmmse_noise_threshold}")
+        
+        try:
+            # Читаем аудиофайл
+            rate, data = wavfile.read(str(input_path))
+            
+            # Применяем LogMMSE с параметрами из настроек
+            denoised = logmmse(
+                data, 
+                rate, 
+                initial_noise=self.settings.logmmse_initial_noise,
+                window_size=self.settings.logmmse_window_size,
+                noise_threshold=self.settings.logmmse_noise_threshold
+            )
+            
+            # Сохраняем результат
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            wavfile.write(str(output_path), rate, denoised.astype(np.int16))
+            
+            self.log(f"LogMMSE применён: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            self.log(f"Ошибка LogMMSE: {e}")
+            return input_path
+    
+    def apply_normalization(self, input_path: Path, output_path: Path, sample_rate: int) -> Path:
+        """Применение нормализации громкости через FFmpeg"""
+        if not self.settings.normalize_audio:
+            return input_path
+        
+        cmd = [
+            'ffmpeg', '-y', '-i', str(input_path),
+            '-af', 'loudnorm=I=-16:LRA=11:TP=-1.5',
+            '-ar', str(sample_rate),
+            '-ac', '2',
+            str(output_path)
+        ]
+        
+        self.log(f"Применение нормализации громкости...")
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0 and output_path.exists():
+                self.log(f"Нормализация применена")
+                return output_path
+            else:
+                self.log(f"Ошибка нормализации: {result.stderr}")
+                return input_path
+        except Exception as e:
+            self.log(f"Ошибка нормализации: {e}")
+            return input_path
+    
     def save_audio(self, audio: torch.Tensor, output_path: Path, sample_rate: int = 48000):
         """Сохранение аудио в MP3 или WAV с постобработкой"""
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,33 +199,76 @@ class TTSWorker(QThread):
                 audio_np = audio_np / max_val
             audio_np = (audio_np * 32767).astype(np.int16)
         
-        temp_wav = output_path.parent / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
-        wavfile.write(str(temp_wav), sample_rate, audio_np)
+        # Временный WAV файл (сырой от Silero)
+        temp_raw = output_path.parent / f"temp_raw_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
+        wavfile.write(str(temp_raw), sample_rate, audio_np)
+        self.log(f"Сырой WAV создан: {temp_raw.name}, размер: {temp_raw.stat().st_size / 1024:.1f} KB")
         
+        current_file = temp_raw
+        
+        # Шаг 1: Применяем эквалайзер (если включён)
         filter_str = self.build_filters()
-        
-        if self.settings.output_format == 'mp3':
-            mp3_path = output_path.with_suffix('.mp3')
-            bitrate_value = self.settings.mp3_bitrate.replace('k', '')
+        if filter_str != "anull":
+            temp_eq = output_path.parent / f"temp_eq_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
             
             cmd = [
-                'ffmpeg', '-y', '-i', str(temp_wav),
+                'ffmpeg', '-y', '-i', str(current_file),
                 '-af', filter_str,
-                '-codec:a', 'libmp3lame',
-                '-b:a', f'{bitrate_value}k',
                 '-ar', str(sample_rate),
                 '-ac', '2',
-                str(mp3_path)
+                str(temp_eq)
             ]
             
-            self.log(f"Конвертация в MP3 с битрейтом {bitrate_value} kbps")
+            self.log(f"Применение эквалайзера...")
             self.log(f"Фильтры: {filter_str[:100]}...")
             
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if result.returncode == 0 and mp3_path.exists():
-                    temp_wav.unlink()
-                    self.log(f"MP3 создан, размер: {mp3_path.stat().st_size / 1024:.1f} KB")
+                if result.returncode == 0 and temp_eq.exists():
+                    current_file.unlink()
+                    current_file = temp_eq
+                    self.log(f"Эквалайзер применён")
+                else:
+                    self.log(f"Ошибка эквалайзера: {result.stderr}")
+            except Exception as e:
+                self.log(f"Ошибка эквалайзера: {e}")
+        
+        # Шаг 2: Применяем нормализацию громкости (если включена)
+        if self.settings.normalize_audio:
+            temp_norm = output_path.parent / f"temp_norm_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
+            result_file = self.apply_normalization(current_file, temp_norm, sample_rate)
+            if result_file != current_file:
+                current_file.unlink()
+                current_file = result_file
+        
+        # Шаг 3: Применяем LogMMSE шумоподавление (если включено)
+        if self.settings.logmmse_enabled:
+            temp_denoised = output_path.parent / f"temp_denoised_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.wav"
+            result_file = self.apply_logmmse(current_file, temp_denoised, sample_rate)
+            if result_file != current_file:
+                current_file.unlink()
+                current_file = result_file
+        
+        # Шаг 4: Финальная конвертация в MP3 или WAV
+        if self.settings.output_format == 'mp3':
+            final_path = output_path.with_suffix('.mp3')
+            bitrate_value = self.settings.mp3_bitrate.replace('k', '')
+            
+            cmd = [
+                'ffmpeg', '-y', '-i', str(current_file),
+                '-codec:a', 'libmp3lame',
+                '-b:a', f'{bitrate_value}k',
+                '-ar', str(sample_rate),
+                '-ac', '2',
+                str(final_path)
+            ]
+            
+            self.log(f"Конвертация в MP3 с битрейтом {bitrate_value} kbps")
+            
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode == 0 and final_path.exists():
+                    self.log(f"MP3 создан, размер: {final_path.stat().st_size / 1024:.1f} KB")
                     
                     # Проверяем битрейт
                     try:
@@ -174,7 +277,7 @@ class TTSWorker(QThread):
                             '-select_streams', 'a:0',
                             '-show_entries', 'format=bit_rate',
                             '-of', 'default=noprint_wrappers=1:nokey=1',
-                            str(mp3_path)
+                            str(final_path)
                         ]
                         probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
                         if probe_result.returncode == 0 and probe_result.stdout.strip():
@@ -183,19 +286,24 @@ class TTSWorker(QThread):
                     except:
                         pass
                     
-                    return mp3_path
+                    # Удаляем временные файлы
+                    if current_file.exists():
+                        current_file.unlink()
+                    
+                    return final_path
                 else:
                     raise Exception("FFmpeg error")
             except Exception as e:
-                self.log(f"Ошибка конвертации: {e}")
+                self.log(f"Ошибка конвертации в MP3: {e}")
+                # Если конвертация не удалась, сохраняем WAV
                 wav_path = output_path.with_suffix('.wav')
-                temp_wav.rename(wav_path)
+                current_file.rename(wav_path)
                 return wav_path
         else:
-            wav_path = output_path.with_suffix('.wav')
-            temp_wav.rename(wav_path)
-            self.log(f"WAV сохранён, размер: {wav_path.stat().st_size / 1024:.1f} KB")
-            return wav_path
+            final_path = output_path.with_suffix('.wav')
+            current_file.rename(final_path)
+            self.log(f"WAV сохранён, размер: {final_path.stat().st_size / 1024:.1f} KB")
+            return final_path
     
     def run(self):
         try:
@@ -207,7 +315,9 @@ class TTSWorker(QThread):
                     f"формат={self.settings.output_format}, "
                     f"битрейт={self.settings.mp3_bitrate}, "
                     f"чанк={self.settings.chunk_size}, "
-                    f"эквалайзер={'вкл' if self.settings.eq_enabled else 'выкл'}")
+                    f"эквалайзер={'вкл' if self.settings.eq_enabled else 'выкл'}, "
+                    f"нормализация={'вкл' if self.settings.normalize_audio else 'выкл'}, "
+                    f"LogMMSE={'вкл' if self.settings.logmmse_enabled else 'выкл'}")
             
             self.progress.emit(10, "Расстановка ударений...")
             text = self.process_with_ruaccent(self.text)
@@ -225,7 +335,6 @@ class TTSWorker(QThread):
                 self.log("Silero загружен")
             
             self.progress.emit(40, "Синтез речи...")
-            # Используем настройку chunk_size вместо жёсткого значения
             chunks = self.split_text_into_chunks(text, max_chunk_size=self.settings.chunk_size)
             self.log(f"Разбито на {len(chunks)} частей для синтеза (размер чанка: {self.settings.chunk_size})")
             
@@ -256,7 +365,7 @@ class TTSWorker(QThread):
             
             audio = torch.cat(audio_segments)
             
-            self.progress.emit(90, "Сохранение аудио...")
+            self.progress.emit(90, "Сохранение и постобработка...")
             final_path = self.save_audio(audio, self.output_path, 48000)
             
             self.progress.emit(100, "Готово!")

@@ -28,6 +28,11 @@ class AppConfig:
     DEFAULT_OUTPUT_FORMAT = "mp3"
     DEFAULT_CHUNK_SIZE = 300
     
+    # Значения по умолчанию для LogMMSE
+    DEFAULT_LOGMMSE_INITIAL_NOISE = 6
+    DEFAULT_LOGMMSE_WINDOW_SIZE = 0
+    DEFAULT_LOGMMSE_NOISE_THRESHOLD = 0.15
+    
     SUPPORTED_INPUT = ['.txt', '.md', '.rst']
     
     @classmethod
@@ -83,7 +88,11 @@ class AppSettings:
             'eq_1000': self.qsettings.value('tts_eq_1000', 0, type=int),
             'eq_2000': self.qsettings.value('tts_eq_2000', 0, type=int),
             'eq_4000': self.qsettings.value('tts_eq_4000', 0, type=int),
-            'eq_8000': self.qsettings.value('tts_eq_8000', 0, type=int)
+            'eq_8000': self.qsettings.value('tts_eq_8000', 0, type=int),
+            'logmmse_enabled': self.qsettings.value('tts_logmmse_enabled', False, type=bool),
+            'logmmse_initial_noise': self.qsettings.value('tts_logmmse_initial_noise', 6, type=int),
+            'logmmse_window_size': self.qsettings.value('tts_logmmse_window_size', 0, type=int),
+            'logmmse_noise_threshold': self.qsettings.value('tts_logmmse_noise_threshold', 0.15, type=float)
         }
     
     def set_tts_settings(self, settings: Dict):
@@ -114,6 +123,12 @@ class TTSSettings:
         self.eq_2000 = 0
         self.eq_4000 = 0
         self.eq_8000 = 0
+        
+        # Параметры LogMMSE
+        self.logmmse_enabled = False
+        self.logmmse_initial_noise = 6
+        self.logmmse_window_size = 0
+        self.logmmse_noise_threshold = 0.15
     
     def load_from_dict(self, data: Dict):
         for key, value in data.items():
@@ -139,5 +154,9 @@ class TTSSettings:
             'eq_1000': self.eq_1000,
             'eq_2000': self.eq_2000,
             'eq_4000': self.eq_4000,
-            'eq_8000': self.eq_8000
+            'eq_8000': self.eq_8000,
+            'logmmse_enabled': self.logmmse_enabled,
+            'logmmse_initial_noise': self.logmmse_initial_noise,
+            'logmmse_window_size': self.logmmse_window_size,
+            'logmmse_noise_threshold': self.logmmse_noise_threshold
         }
