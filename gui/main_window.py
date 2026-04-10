@@ -150,16 +150,21 @@ class MainWindow(QMainWindow):
         about_text = f"""
         <h2>{AppConfig.APP_NAME} v{AppConfig.APP_VERSION}</h2>
         <p>Приложение для синтеза речи с поддержкой русского языка</p>
-        <p><b>Компоненты:</b> Silero TTS, RUAccent, FFmpeg</p>
+        <p><b>Компоненты:</b> Silero TTS, RUAccent, FFmpeg, LogMMSE</p>
         <p><b>Настройки сохраняются автоматически</b></p>
         <ul>
             <li>Голос: {self.settings.voice}</li>
             <li>Ударения: {self.settings.accent_model}</li>
             <li>Формат: {self.settings.output_format}</li>
             <li>Битрейт: {self.settings.mp3_bitrate}</li>
+            <li>Длина чанка: {self.settings.chunk_size} символов</li>
             <li>Нормализация: {'вкл' if self.settings.normalize_audio else 'выкл'}</li>
-            <li>Удаление тишины: {'вкл' if self.settings.remove_silence else 'выкл'}</li>
+            <li>Эквалайзер: {'вкл' if self.settings.eq_enabled else 'выкл'}</li>
+            <li>LogMMSE: {'вкл' if self.settings.logmmse_enabled else 'выкл'}</li>
         </ul>
+        <p><b>Авторы:</b> DeepSeek и Галантерейщик</p>
+        <hr>
+        <p><b>Лицензия:</b> MIT</p>
         """
         QMessageBox.about(self, "О программе", about_text)
     
