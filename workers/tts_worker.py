@@ -9,6 +9,7 @@ import re
 import numpy as np
 import scipy.io.wavfile as wavfile
 import subprocess
+import gc
 
 from config.settings import AppConfig, TTSSettings
 
@@ -29,6 +30,20 @@ class TTSWorker(QThread):
         
     def stop(self):
         self._is_running = False
+    
+    def unload_models(self):
+        """Выгрузка моделей из памяти"""
+        self.log("Выгрузка моделей из памяти...")
+        if self._model is not None:
+            del self._model
+            self._model = None
+        if self._accentizer is not None:
+            del self._accentizer
+            self._accentizer = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        self.log("Модели выгружены")
         
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -63,22 +78,23 @@ class TTSWorker(QThread):
         """Обработка текста через RUAccent с выбором модели из настроек"""
         from ruaccent import RUAccent
         
-        if self._accentizer is None:
-            self._accentizer = RUAccent()
-            
-            if self.settings.accent_model == 'accurate':
-                model_type = 'big_poetry'
-            else:
-                model_type = 'turbo2'
-            
-            self.log(f"Загрузка модели RUAccent: {model_type}")
-            
-            self._accentizer.load(
-                omograph_model_size=model_type,
-                use_dictionary=True,
-                device='CPU'
-            )
-            self.log("RUAccent загружен")
+        # Всегда загружаем модель заново (не кэшируем между файлами)
+        self.log("Загрузка модели RUAccent...")
+        self._accentizer = RUAccent()
+        
+        if self.settings.accent_model == 'accurate':
+            model_type = 'big_poetry'
+        else:
+            model_type = 'turbo2'
+        
+        self.log(f"Модель RUAccent: {model_type}")
+        
+        self._accentizer.load(
+            omograph_model_size=model_type,
+            use_dictionary=True,
+            device='CPU'
+        )
+        self.log("RUAccent загружен")
         
         # Разбиваем на чанки по 150 символов для стабильности
         chunks = self.split_text_into_chunks(text, max_chunk_size=150)
@@ -99,6 +115,15 @@ class TTSWorker(QThread):
         result = ' '.join(processed_chunks)
         self.log(f"Расстановка ударений завершена, длина текста: {len(result)} символов")
         return result
+    
+    def load_silero(self):
+        """Загрузка модели Silero"""
+        self.log("Загрузка модели Silero...")
+        self._model, _ = torch.hub.load(
+            'snakers4/silero-models', 'silero_tts',
+            language='ru', speaker='v4_ru', trust_repo=True
+        )
+        self.log("Silero загружен")
     
     def build_filters(self) -> str:
         """Построение строки фильтров для FFmpeg (эквалайзер)"""
@@ -124,12 +149,7 @@ class TTSWorker(QThread):
         return ",".join(filters) if filters else "anull"
     
     def apply_logmmse(self, input_path: Path, output_path: Path, sample_rate: int) -> Path:
-        """Применение LogMMSE шумоподавления к аудиофайлу"""
-        try:
-            from logmmse import logmmse
-        except ImportError:
-            self.log("LogMMSE не установлен. Установите: pip install logmmse")
-            return input_path
+        """Применение LogMMSE шумоподавления с выгрузкой после использования"""
         
         self.log(f"Применение LogMMSE шумоподавления: "
                 f"initial_noise={self.settings.logmmse_initial_noise}, "
@@ -137,11 +157,14 @@ class TTSWorker(QThread):
                 f"noise_threshold={self.settings.logmmse_noise_threshold}")
         
         try:
+            # Динамический импорт
+            import logmmse as logmmse_module
+            
             # Читаем аудиофайл
             rate, data = wavfile.read(str(input_path))
             
             # Применяем LogMMSE с параметрами из настроек
-            denoised = logmmse(
+            denoised = logmmse_module.logmmse(
                 data, 
                 rate, 
                 initial_noise=self.settings.logmmse_initial_noise,
@@ -154,8 +177,16 @@ class TTSWorker(QThread):
             wavfile.write(str(output_path), rate, denoised.astype(np.int16))
             
             self.log(f"LogMMSE применён: {output_path}")
+            
+            # Принудительно удаляем модуль и очищаем память
+            del logmmse_module
+            gc.collect()
+            
             return output_path
             
+        except ImportError:
+            self.log("LogMMSE не установлен. Установите: pip install logmmse")
+            return input_path
         except Exception as e:
             self.log(f"Ошибка LogMMSE: {e}")
             return input_path
@@ -287,7 +318,7 @@ class TTSWorker(QThread):
                         pass
                     
                     # Удаляем временные файлы
-                    if current_file.exists():
+                    if current_file.exists() and current_file != final_path:
                         current_file.unlink()
                     
                     return final_path
@@ -305,6 +336,32 @@ class TTSWorker(QThread):
             self.log(f"WAV сохранён, размер: {final_path.stat().st_size / 1024:.1f} KB")
             return final_path
     
+    def synthesize_text(self, text: str) -> torch.Tensor:
+        """Синтез текста с разбивкой на чанки"""
+        chunks = self.split_text_into_chunks(text, max_chunk_size=self.settings.chunk_size)
+        self.log(f"Разбито на {len(chunks)} частей для синтеза (размер чанка: {self.settings.chunk_size})")
+        
+        audio_segments = []
+        
+        for i, chunk in enumerate(chunks):
+            if not self._is_running:
+                return None
+            
+            self.log(f"Синтез части {i+1}/{len(chunks)}: {len(chunk)} символов")
+            
+            audio = self._model.apply_tts(
+                text=chunk,
+                speaker=self.settings.voice,
+                sample_rate=48000
+            )
+            audio_segments.append(audio)
+            
+            if i < len(chunks) - 1:
+                pause = torch.zeros(int(0.3 * 48000))
+                audio_segments.append(pause)
+        
+        return torch.cat(audio_segments) if audio_segments else None
+    
     def run(self):
         try:
             self.log("=== НАЧАЛО СИНТЕЗА ===")
@@ -319,6 +376,7 @@ class TTSWorker(QThread):
                     f"нормализация={'вкл' if self.settings.normalize_audio else 'выкл'}, "
                     f"LogMMSE={'вкл' if self.settings.logmmse_enabled else 'выкл'}")
             
+            # Шаг 1: Расстановка ударений (всегда загружаем модель заново)
             self.progress.emit(10, "Расстановка ударений...")
             text = self.process_with_ruaccent(self.text)
             
@@ -326,45 +384,19 @@ class TTSWorker(QThread):
                 self.error.emit("Ошибка обработки текста")
                 return
             
+            # Шаг 2: Загрузка Silero (всегда загружаем заново)
             self.progress.emit(30, "Загрузка модели Silero...")
-            if self._model is None:
-                self._model, _ = torch.hub.load(
-                    'snakers4/silero-models', 'silero_tts',
-                    language='ru', speaker='v4_ru', trust_repo=True
-                )
-                self.log("Silero загружен")
+            self.load_silero()
             
+            # Шаг 3: Синтез речи
             self.progress.emit(40, "Синтез речи...")
-            chunks = self.split_text_into_chunks(text, max_chunk_size=self.settings.chunk_size)
-            self.log(f"Разбито на {len(chunks)} частей для синтеза (размер чанка: {self.settings.chunk_size})")
+            audio = self.synthesize_text(text)
             
-            audio_segments = []
-            
-            for i, chunk in enumerate(chunks):
-                if not self._is_running:
-                    self.log("Синтез прерван")
-                    return
-                
-                self.progress.emit(40 + int((i / len(chunks)) * 50), f"Синтез части {i+1}/{len(chunks)}...")
-                self.log(f"Синтез части {i+1}/{len(chunks)}: {len(chunk)} символов")
-                
-                audio = self._model.apply_tts(
-                    text=chunk,
-                    speaker=self.settings.voice,
-                    sample_rate=48000
-                )
-                audio_segments.append(audio)
-                
-                if i < len(chunks) - 1:
-                    pause = torch.zeros(int(0.3 * 48000))
-                    audio_segments.append(pause)
-            
-            if not audio_segments:
-                self.error.emit("Не удалось синтезировать аудио")
+            if audio is None:
+                self.error.emit("Синтез прерван")
                 return
             
-            audio = torch.cat(audio_segments)
-            
+            # Шаг 4: Сохранение и постобработка
             self.progress.emit(90, "Сохранение и постобработка...")
             final_path = self.save_audio(audio, self.output_path, 48000)
             
@@ -376,3 +408,6 @@ class TTSWorker(QThread):
             self.log(f"ОШИБКА: {e}")
             self.log(traceback.format_exc())
             self.error.emit(str(e))
+        finally:
+            # Выгружаем модели из памяти
+            self.unload_models()
