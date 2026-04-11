@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         setup_logger(AppConfig.BASE_DIR / "logs")
         self.restore_window_geometry()
         
+        # Создаём диалог настроек (один раз, переиспользуем)
+        self._settings_dialog = None
+        
         logger.info(f"{AppConfig.APP_NAME} запущен")
     
     def create_menu_bar(self):
@@ -101,23 +104,32 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
     
     def open_settings(self):
-        """Открыть окно настроек"""
-        dialog = SettingsDialog(self.settings, self)
-        if dialog.exec_():
-            # Получаем обновлённые настройки
-            self.settings = dialog.get_settings()
-            # Сохраняем в QSettings
-            self.save_settings()
-            # Синхронизируем с вкладками
-            self.text_tab.update_settings(self.settings)
-            self.batch_tab.update_settings(self.settings)
-            # Обновляем таблицу в batch_tab (для формата)
-            self.batch_tab.scan_files()
-            self.status_bar.showMessage("Настройки сохранены", 2000)
-            logger.info(f"Настройки обновлены: голос={self.settings.voice}, "
-                       f"ударения={self.settings.accent_model}, "
-                       f"формат={self.settings.output_format}, "
-                       f"битрейт={self.settings.mp3_bitrate}")
+        """Открыть окно настроек (немодальное, переиспользуемое)"""
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog(self.settings, self)
+            self._settings_dialog.settings_applied.connect(self.on_settings_applied)
+            self._settings_dialog.show()
+        else:
+            # Если окно уже существует, просто показываем его
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+    
+    def on_settings_applied(self):
+        """Обработчик применения настроек (без закрытия окна)"""
+        # Получаем обновлённые настройки из диалога
+        self.settings = self._settings_dialog.get_settings()
+        # Сохраняем в QSettings
+        self.save_settings()
+        # Синхронизируем с вкладками
+        self.text_tab.update_settings(self.settings)
+        self.batch_tab.update_settings(self.settings)
+        # Обновляем таблицу в batch_tab (для формата)
+        self.batch_tab.scan_files()
+        self.status_bar.showMessage("Настройки применены", 2000)
+        logger.info(f"Настройки применены: голос={self.settings.voice}, "
+                   f"ударения={self.settings.accent_model}, "
+                   f"формат={self.settings.output_format}, "
+                   f"битрейт={self.settings.mp3_bitrate}")
     
     def select_working_dir_from_menu(self):
         self.batch_tab.select_working_dir()
@@ -169,6 +181,11 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "О программе", about_text)
     
     def closeEvent(self, event):
+        # Закрываем диалог настроек, если он открыт
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
+            self._settings_dialog = None
+        
         self.app_settings.set_window_geometry(self.saveGeometry())
         self.app_settings.set_window_state(self.saveState())
         self.save_settings()

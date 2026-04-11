@@ -1,17 +1,20 @@
-"""Диалог настроек приложения"""
+"""Диалог настроек приложения (немодальный)"""
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QCheckBox, QPushButton, QGroupBox,
     QRadioButton, QButtonGroup, QSlider, QTabWidget,
     QWidget, QSpinBox, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 
 from config.settings import AppConfig, TTSSettings
 
 
 class SettingsDialog(QDialog):
-    """Окно настроек приложения"""
+    """Окно настроек приложения (немодальное)"""
+    
+    # Сигнал, который отправляется при нажатии "Применить"
+    settings_applied = pyqtSignal()
     
     def __init__(self, settings: TTSSettings, parent=None):
         super().__init__(parent)
@@ -19,7 +22,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Настройки")
         self.setMinimumWidth(800)
         self.setMinimumHeight(500)
-        self.setModal(True)
+        self.setModal(False)  # Немодальное окно
         
         self.init_ui()
         self.load_settings()
@@ -49,7 +52,7 @@ class SettingsDialog(QDialog):
         btn_layout = QHBoxLayout()
         
         self.apply_btn = QPushButton("Применить")
-        self.apply_btn.clicked.connect(self.apply_settings)
+        self.apply_btn.clicked.connect(self.apply_and_notify)
         
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.clicked.connect(self.save_settings)
@@ -412,8 +415,19 @@ class SettingsDialog(QDialog):
             'logmmse_noise_threshold': self.logmmse_threshold_spin.value()
         }
     
+    def apply_and_notify(self):
+        """Применить настройки и отправить сигнал"""
+        new_settings = self.get_settings_from_ui()
+        
+        for key, value in new_settings.items():
+            if hasattr(self.settings, key):
+                setattr(self.settings, key, value)
+        
+        # Отправляем сигнал, что настройки применены
+        self.settings_applied.emit()
+    
     def apply_settings(self):
-        """Применить настройки без закрытия окна"""
+        """Применить настройки без закрытия окна (без сигнала)"""
         new_settings = self.get_settings_from_ui()
         
         for key, value in new_settings.items():
