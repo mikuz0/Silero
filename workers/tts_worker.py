@@ -72,7 +72,8 @@ class TTSWorker(QThread):
         if current_chunk:
             chunks.append(current_chunk.strip())
         
-        return chunks
+        # Фильтруем пустые чанки
+        return [chunk for chunk in chunks if chunk.strip()]
     
     def process_with_ruaccent(self, text: str) -> str:
         """Обработка текста через RUAccent с выбором модели из настроек"""
@@ -339,6 +340,14 @@ class TTSWorker(QThread):
     def synthesize_text(self, text: str) -> torch.Tensor:
         """Синтез текста с разбивкой на чанки"""
         chunks = self.split_text_into_chunks(text, max_chunk_size=self.settings.chunk_size)
+        
+        # Фильтруем пустые чанки (0 символов)
+        chunks = [chunk for chunk in chunks if chunk.strip()]
+        
+        if not chunks:
+            self.log("Нет текста для синтеза (все чанки пустые)")
+            return None
+        
         self.log(f"Разбито на {len(chunks)} частей для синтеза (размер чанка: {self.settings.chunk_size})")
         
         audio_segments = []
